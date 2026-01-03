@@ -1,0 +1,39 @@
+# Kodi Media Center language file
+# Addon Name: NFO Sync Service
+# Addon id: service.library.nfosync
+# Language: English (GB)
+msgctxt "#32000"
+msgid "General"
+msgstr ""
+
+msgctxt "#32001"
+msgid "Sync Settings"
+msgstr ""
+
+msgctxt "#32002"
+msgid "Configuration"
+msgstr ""
+
+msgctxt "#32003"
+msgid "Sync Direction"
+msgstr ""
+
+msgctxt "#32004"
+msgid "Export Library (to NFO)"
+msgstr ""
+
+msgctxt "#32005"
+msgid "Import Library (Scan New)"
+msgstr ""
+
+msgctxt "#32006"
+msgid "Import Library (Force Refresh via JSON-RPC)"
+msgstr ""
+
+msgctxt "#32007"
+msgid "Sync Interval (Hours)"
+msgstr ""
+
+msgctxt "#32008"
+msgid "Show Notifications"
+msgstr ""
