@@ -147,6 +147,12 @@ class NFOSyncService(xbmc.Monitor):
             logger.log("Library scan finished. Proceeding...")
 
     def run_sync(self):
+        # Check if media is playing
+        if xbmc.Player().isPlaying():
+            logger.log("Media is playing. Postponing sync for 60 seconds.")
+            self.next_run = time.time() + 60
+            return
+
         # Prevent collisions with running scans (e.g. startup scan)
         self.wait_while_scanning()
         if self.abortRequested(): return
