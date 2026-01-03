@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <settings>
     <category label="Configuration">
-        <setting id="sync_direction" type="labelenum" label="Sync Direction" values="Export Library|Import (Scan New)|Import (Force Refresh)" default="Export Library" />
+        <setting id="sync_direction" type="labelenum" label="Sync Direction" values="Export Library|Import (Scan New)|Import (Force Refresh)" default="Import (Scan New)" />
         <setting id="smart_sync" type="bool" label="Use Smart Sync (Check file modification time)" default="true" />
-        <setting id="sync_on_startup" type="bool" label="Sync on Kodi Startup" default="true" />
+        <setting id="sync_on_startup" type="bool" label="Sync on Kodi Startup" default="false" />
         <setting id="sync_interval" type="slider" label="Sync Interval (Hours)" default="24" range="1,1,168" option="int" />
         <setting id="show_notifications" type="bool" label="Show Notifications" default="true" />
     </category>
