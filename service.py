@@ -79,7 +79,7 @@ class NFOSyncService(xbmc.Monitor):
     def wait_for_scan(self):
         # Wait a moment for scan to potentially start
         count = 0
-        while count < 5:
+        while count < 10:
             if xbmc.getCondVisibility('Library.IsScanningVideo'):
                 break
             xbmc.sleep(1000)
