@@ -2,6 +2,7 @@ import os
 import xbmc
 import xbmcaddon
 import xbmcgui
+import xbmcvfs
 import time
 import json
 from datetime import datetime, timedelta
@@ -92,28 +93,64 @@ class NFOSyncService(xbmc.Monitor):
         # Determine NFO path
         if not file_path: return False
 
-        # Check standard NFO naming: movie.nfo or video_name.nfo
+        # Determine base path and extension
         base, ext = os.path.splitext(file_path)
-        candidates = [base + '.nfo', os.path.join(os.path.dirname(file_path), 'movie.nfo')]
+        candidates = []
 
-        # Also handling tvshow.nfo for TV shows?
-        candidates.append(os.path.join(file_path, 'tvshow.nfo'))
+        # 1. Exact match: /path/movie.mkv -> /path/movie.nfo
+        candidates.append(base + '.nfo')
+
+        # 2. Movie NFO in parent dir: /path/movie.mkv -> /path/movie.nfo
+        parent_dir = os.path.dirname(file_path)
+
+        # Handle URL separators (/) vs OS separators (\ on Windows) correctly
+        if '://' in file_path:
+            sep = '/'
+            # Ensure no double slashes except protocol
+            parent_dir = parent_dir.rstrip('/\\')
+        else:
+            sep = os.path.sep
+
+        candidates.append(parent_dir + sep + 'movie.nfo')
+
+        # 3. TV Show NFO (usually file_path is the show dir or similar)
+        # Note: file_path here comes from 'file' property of GetTVShows/GetMovies
+        if '://' in file_path:
+             candidates.append(file_path.rstrip('/\\') + sep + 'tvshow.nfo')
+        else:
+             candidates.append(os.path.join(file_path, 'tvshow.nfo'))
 
         for nfo_path in candidates:
-            if os.path.exists(nfo_path):
+            if xbmcvfs.exists(nfo_path):
                 try:
-                    mtime = os.path.getmtime(nfo_path)
-                    # Debug log for checking timestamps
-                    # logger.log(f"Checking {nfo_path}: mtime={mtime}, last_run={last_run}")
+                    stats = xbmcvfs.Stat(nfo_path)
+                    mtime = stats.st_mtime()
+
                     if mtime > last_run:
                         logger.log(f"DETECTED CHANGE: {nfo_path} (mtime {mtime} > last_run {last_run})")
                         return True
-                except:
+                except Exception as e:
+                    logger.log(f"Error checking NFO {nfo_path}: {e}", xbmc.LOGWARNING)
                     pass
 
         return False
 
+    def wait_while_scanning(self):
+        if xbmc.getCondVisibility('Library.IsScanningVideo'):
+            logger.log("Library is currently scanning. Waiting for it to finish...")
+            start_wait = time.time()
+            while xbmc.getCondVisibility('Library.IsScanningVideo') and not self.abortRequested():
+                xbmc.sleep(1000)
+                if time.time() - start_wait > 30: # Log every 30s
+                    logger.log("Still waiting for library scan to finish...")
+                    start_wait = time.time()
+            logger.log("Library scan finished. Proceeding...")
+
     def run_sync(self):
+        # Prevent collisions with running scans (e.g. startup scan)
+        self.wait_while_scanning()
+        if self.abortRequested(): return
+
         # Map labelenum strings to integers
         direction_str = ADDON.getSetting('sync_direction')
         direction = 0
@@ -151,7 +188,16 @@ class NFOSyncService(xbmc.Monitor):
         # Batch size 5000 to process effectively all-in-one-go
         BATCH_SIZE = 5000
         last_run = get_last_run()
-        logger.log(f"Checking for NFOs modified since timestamp: {last_run}")
+
+        # Check if Smart Sync is enabled
+        use_smart_sync = ADDON.getSettingBool('smart_sync')
+        logger.log(f"Smart Sync Enabled: {use_smart_sync}")
+
+        if use_smart_sync:
+            # We are using a 2h buffer in should_refresh
+            logger.log(f"Checking for NFOs modified since timestamp: {last_run} (with 2h safety buffer)")
+        else:
+            logger.log("Smart Sync disabled. Forcing refresh of ALL items.")
 
         # Refresh Movies
         movies = json_rpc('VideoLibrary.GetMovies', {'properties': ['file']})
@@ -166,7 +212,7 @@ class NFOSyncService(xbmc.Monitor):
                 if self.abortRequested(): break
 
                 # Smart Sync Check
-                if last_run > 0:
+                if use_smart_sync and last_run > 0:
                     if not self.should_refresh(movie['file'], last_run):
                         skipped += 1
                         continue
@@ -204,7 +250,7 @@ class NFOSyncService(xbmc.Monitor):
                 if self.abortRequested(): break
 
                  # Smart Sync Check
-                if last_run > 0:
+                if use_smart_sync and last_run > 0:
                     if not self.should_refresh(show['file'], last_run):
                         skipped += 1
                         continue
@@ -238,6 +284,15 @@ class NFOSyncService(xbmc.Monitor):
 
     def run(self):
         logger.log("Service Started")
+
+        # Check and run Sync on Startup
+        if ADDON.getSettingBool('sync_on_startup'):
+            logger.log("Sync on Startup Enabled. Waiting 30s for system to settle...")
+            # Wait 30 seconds to allow network/drives to mount and other services to start
+            if not self.waitForAbort(30):
+                logger.log("Triggering Startup Sync...")
+                self.run_sync()
+
         while not self.abortRequested():
             if time.time() >= self.next_run:
                 self.run_sync()
