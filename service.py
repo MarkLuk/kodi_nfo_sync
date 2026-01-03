@@ -206,6 +206,7 @@ class NFOSyncService(xbmc.Monitor):
 
             set_last_run(start_time)
             self.update_schedule()
+            logger.log(f"Sync Completed")
             logger.notify("NFO Sync", "Sync Completed", xbmcgui.NOTIFICATION_INFO)
 
         finally:
