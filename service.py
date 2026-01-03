@@ -146,47 +146,70 @@ class NFOSyncService(xbmc.Monitor):
                     start_wait = time.time()
             logger.log("Library scan finished. Proceeding...")
 
+    def acquire_lock(self):
+        # Use Home Window (10000) property as a specialized, ephemeral lock
+        # This is memory-only and auto-clears on Kodi restart/crash
+        is_running = xbmcgui.Window(10000).getProperty('service.library.nfosync.sync_active')
+        if is_running == 'true':
+            return False
+
+        xbmcgui.Window(10000).setProperty('service.library.nfosync.sync_active', 'true')
+        return True
+
+    def release_lock(self):
+        xbmcgui.Window(10000).setProperty('service.library.nfosync.sync_active', 'false')
+
     def run_sync(self):
-        # Check if media is playing
-        if xbmc.Player().isPlaying():
-            logger.log("Media is playing. Postponing sync for 60 seconds.")
-            self.next_run = time.time() + 60
+        # Attempt to acquire lock
+        if not self.acquire_lock():
+            logger.log("Sync request ignored: Sync already in progress.")
+            logger.notify("NFO Sync", "Sync already in progress", xbmcgui.NOTIFICATION_WARNING)
             return
 
-        # Prevent collisions with running scans (e.g. startup scan)
-        self.wait_while_scanning()
-        if self.abortRequested(): return
+        try:
+            # Check if media is playing
+            if xbmc.Player().isPlaying():
+                logger.log("Media is playing. Postponing sync for 60 seconds.")
+                self.next_run = time.time() + 60
+                return
 
-        # Map labelenum strings to integers
-        direction_str = ADDON.getSetting('sync_direction')
-        direction = 0
-        if direction_str == "Import (Scan New)":
-            direction = 1
-        elif direction_str == "Import (Force Refresh)":
-            direction = 2
+            # Prevent collisions with running scans (e.g. startup scan)
+            self.wait_while_scanning()
+            if self.abortRequested(): return
 
-        logger.log(f"Starting Sync. Direction: {direction} ({direction_str})")
-        logger.notify("NFO Sync", "Starting Sync", xbmcgui.NOTIFICATION_INFO)
+            # Map labelenum strings to integers
+            direction_str = ADDON.getSetting('sync_direction')
+            direction = 0
+            if direction_str == "Import (Scan New)":
+                direction = 1
+            elif direction_str == "Import (Force Refresh)":
+                direction = 2
 
-        start_time = time.time()
+            logger.log(f"Starting Sync. Direction: {direction} ({direction_str})")
+            logger.notify("NFO Sync", "Starting Sync", xbmcgui.NOTIFICATION_INFO)
 
-        if direction == 0:  # Export Library
-            # ExportLibrary(category, separate, overwrite, images, actorimgs)
-            # We want: video, true (separate files), true (overwrite), true (images), true (actorimgs)
-            xbmc.executebuiltin('ExportLibrary(video,true,true,true,true)')
-            logger.log("Triggered ExportLibrary")
+            start_time = time.time()
 
-        elif direction == 1:  # Import (Scan)
-            xbmc.executebuiltin('UpdateLibrary(video)')
-            logger.log("Triggered UpdateLibrary (Scan)")
-            self.wait_for_scan()
+            if direction == 0:  # Export Library
+                # ExportLibrary(category, separate, overwrite, images, actorimgs)
+                # We want: video, true (separate files), true (overwrite), true (images), true (actorimgs)
+                xbmc.executebuiltin('ExportLibrary(video,true,true,true,true)')
+                logger.log("Triggered ExportLibrary")
 
-        elif direction == 2:  # Import (Force Refresh)
-            self.refresh_library()
+            elif direction == 1:  # Import (Scan)
+                xbmc.executebuiltin('UpdateLibrary(video)')
+                logger.log("Triggered UpdateLibrary (Scan)")
+                self.wait_for_scan()
 
-        set_last_run(start_time)
-        self.update_schedule()
-        logger.notify("NFO Sync", "Sync Completed", xbmcgui.NOTIFICATION_INFO)
+            elif direction == 2:  # Import (Force Refresh)
+                self.refresh_library()
+
+            set_last_run(start_time)
+            self.update_schedule()
+            logger.notify("NFO Sync", "Sync Completed", xbmcgui.NOTIFICATION_INFO)
+
+        finally:
+            self.release_lock()
 
     def refresh_library(self):
         logger.log("Starting Library Refresh (JSON-RPC) - Smart Mode")
