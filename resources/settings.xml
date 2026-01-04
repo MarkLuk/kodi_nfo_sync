@@ -4,9 +4,10 @@
         <setting id="import_enabled" type="bool" label="Enable Import" default="false" />
         <setting id="import_type" type="labelenum" label="Import Type" values="Scan New Only|Full Refresh" default="Scan New Only" enable="eq(-1,true)" />
         <setting id="import_smart_sync" type="bool" label="Use Smart Sync (Check file modification time)" default="true" visible="eq(-1,Full Refresh)" enable="eq(-2,true)" />
-        <setting id="import_preserve_watched" type="bool" label="Preserve Watched Status" default="true" visible="eq(-2,Full Refresh)" enable="eq(-3,true)" />
-        <setting id="import_interval" type="slider" label="Import Interval (Hours)" default="24" range="1,1,168" option="int" enable="eq(-4,true)" />
-        <setting id="import_on_startup" type="bool" label="Import on Kodi Startup" default="false" enable="eq(-5,true)" />
+        <setting id="import_experimental_rescan" type="bool" label="Use Remove and Rescan (Experimental)" default="false" visible="eq(-1,true) + eq(-2,Full Refresh)" enable="eq(-3,true)" />
+        <setting id="import_preserve_watched" type="bool" label="Preserve Watched Status" default="true" visible="eq(-2,Full Refresh)" enable="eq(-4,true)" />
+        <setting id="import_interval" type="slider" label="Import Interval (Hours)" default="24" range="1,1,168" option="int" enable="eq(-5,true)" />
+        <setting id="import_on_startup" type="bool" label="Import on Kodi Startup" default="false" enable="eq(-6,true)" />
     </category>
     <category label="Export">
         <setting id="export_enabled" type="bool" label="Enable Export" default="false" />
