@@ -3,9 +3,17 @@ import xbmcgui
 from service import NFOSyncService, logger
 
 if __name__ == '__main__':
-    logger.log("Manual Run Triggered via Script")
+    options = ['Import (from NFOs)', 'Export (to NFOs)', 'Clean Library']
+    ret = xbmcgui.Dialog().select('NFO Sync Manual Trigger', options)
 
-    # Just run, no dialog
-    if xbmcgui.Dialog().yesno("NFO Sync", "Run Manual Sync now?"):
+    if ret >= 0:
         service = NFOSyncService()
-        service.run_sync()
+        if ret == 0:
+            logger.log("Manual Trigger: Import")
+            service.run_import()
+        elif ret == 1:
+            logger.log("Manual Trigger: Export")
+            service.run_export()
+        elif ret == 2:
+            logger.log("Manual Trigger: Clean")
+            service.run_clean()

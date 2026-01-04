@@ -18,7 +18,7 @@ if "%ADDON_VER%"=="" (
 
 echo Building release for %ADDON_ID% v%ADDON_VER%...
 
-set "RELEASE_DIR=releases"
+set "RELEASE_DIR=%~dp0releases"
 set "ZIP_NAME=%ADDON_ID%-%ADDON_VER%.zip"
 set "TEMP_DIR=%TEMP%\%ADDON_ID%_build"
 set "BUILD_ROOT=%TEMP_DIR%\%ADDON_ID%"
@@ -38,7 +38,9 @@ set "DIRS_TO_COPY=resources"
 
 :: Copy Files
 for %%f in (%FILES_TO_COPY%) do (
-    xcopy "%%f" "%BUILD_ROOT%\" /Y
+    if exist "%%f" (
+        xcopy "%%f" "%BUILD_ROOT%\" /Y
+    )
 )
 
 :: Create Exclude File for Directories
@@ -50,14 +52,18 @@ set "EXCLUDE_FILE=%TEMP%\xcopy_excludes.txt"
 
 :: Copy Directories
 for %%d in (%DIRS_TO_COPY%) do (
-    xcopy "%%d" "%BUILD_ROOT%\%%d" /E /I /Y /EXCLUDE:%EXCLUDE_FILE%
+    if exist "%%d" (
+        xcopy "%%d" "%BUILD_ROOT%\%%d" /E /I /Y /EXCLUDE:%EXCLUDE_FILE%
+    )
 )
 
 del "%EXCLUDE_FILE%"
 
 :: Create Zip using PowerShell
 echo Creating zip package...
-powershell -NoProfile -Command "Compress-Archive -Path '%BUILD_ROOT%' -DestinationPath '%RELEASE_DIR%\%ZIP_NAME%'"
+pushd "%TEMP_DIR%"
+7z a -tzip -mx=0 "%RELEASE_DIR%\%ZIP_NAME%" "%ADDON_ID%"
+popd
 
 :: Cleanup
 rmdir /s /q "%TEMP_DIR%"

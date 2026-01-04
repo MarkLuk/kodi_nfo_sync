@@ -1,10 +1,22 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <settings>
-    <category label="Configuration">
-        <setting id="sync_direction" type="labelenum" label="Sync Direction" values="Export Library|Import (Scan New)|Import (Force Refresh)" default="Import (Scan New)" />
-        <setting id="smart_sync" type="bool" label="Use Smart Sync (Check file modification time)" default="true" />
-        <setting id="sync_on_startup" type="bool" label="Sync on Kodi Startup" default="false" />
-        <setting id="sync_interval" type="slider" label="Sync Interval (Hours)" default="24" range="1,1,168" option="int" />
+    <category label="Import">
+        <setting id="import_enabled" type="bool" label="Enable Import" default="false" />
+        <setting id="import_type" type="labelenum" label="Import Type" values="Scan New Only|Full Refresh" default="Scan New Only" enable="eq(-1,true)" />
+        <setting id="import_smart_sync" type="bool" label="Use Smart Sync (Check file modification time)" default="true" visible="eq(-1,Full Refresh)" enable="eq(-2,true)" />
+        <setting id="import_interval" type="slider" label="Import Interval (Hours)" default="24" range="1,1,168" option="int" enable="eq(-3,true)" />
+        <setting id="import_on_startup" type="bool" label="Import on Kodi Startup" default="false" enable="eq(-4,true)" />
+    </category>
+    <category label="Export">
+        <setting id="export_enabled" type="bool" label="Enable Export" default="false" />
+        <setting id="export_interval" type="slider" label="Export Interval (Hours)" default="24" range="1,1,168" option="int" enable="eq(-1,true)" />
+    </category>
+    <category label="Clean-up">
+        <setting id="clean_enabled" type="bool" label="Enable Clean-up" default="false" />
+        <setting id="clean_schedule_type" type="labelenum" label="Clean-up Trigger" values="After Import|On Schedule" default="After Import" enable="eq(-1,true)" />
+        <setting id="clean_interval" type="slider" label="Clean-up Interval (Hours)" default="24" range="1,1,168" option="int" visible="eq(-1,On Schedule)" enable="eq(-2,true)" />
+    </category>
+    <category label="General">
         <setting id="show_notifications" type="bool" label="Show Notifications" default="true" />
     </category>
 </settings>

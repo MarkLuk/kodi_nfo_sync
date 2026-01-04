@@ -26,8 +26,8 @@ def get_setting_int(id):
     except:
         return 0
 
-def get_last_run():
-    last_run_str = ADDON.getSetting('last_run')
+def get_last_run(key):
+    last_run_str = ADDON.getSetting(key)
     if not last_run_str:
         return 0
     try:
@@ -35,8 +35,8 @@ def get_last_run():
     except:
         return 0
 
-def set_last_run(timestamp):
-    ADDON.setSetting('last_run', str(timestamp))
+def set_last_run(key, timestamp):
+    ADDON.setSetting(key, str(timestamp))
 
 def json_rpc(method, params=None):
     if params is None:
@@ -61,20 +61,50 @@ def json_rpc_batch(payloads):
 class NFOSyncService(xbmc.Monitor):
     def __init__(self):
         super().__init__()
-        self.next_run = 0
-        self.interval = 24  # Default hours
+        self.next_run_import = 0
+        self.next_run_export = 0
+        self.next_run_clean = 0
         self.update_schedule()
 
     def update_schedule(self):
-        self.interval = get_setting_int('sync_interval')
-        last_run = get_last_run()
-        if last_run == 0:
-            # If never run, schedule for 1 minute from now to allow startup to settle
-            self.next_run = time.time() + 60
+        # Update Import Schedule
+        if ADDON.getSettingBool('import_enabled'):
+            interval = get_setting_int('import_interval')
+            last_run = get_last_run('last_run_import')
+            if last_run == 0:
+                self.next_run_import = time.time() + 60
+            else:
+                self.next_run_import = last_run + (interval * 3600)
         else:
-            self.next_run = last_run + (self.interval * 3600)
+            self.next_run_import = 0
 
-        logger.log(f"Schedule updated. Interval: {self.interval}h. Next run: {datetime.fromtimestamp(self.next_run)}")
+        # Update Export Schedule
+        if ADDON.getSettingBool('export_enabled'):
+            interval = get_setting_int('export_interval')
+            last_run = get_last_run('last_run_export')
+            if last_run == 0:
+                self.next_run_export = time.time() + 60
+            else:
+                self.next_run_export = last_run + (interval * 3600)
+        else:
+            self.next_run_export = 0
+
+        # Update Clean Schedule
+        if ADDON.getSettingBool('clean_enabled') and ADDON.getSetting('clean_schedule_type') == 'On Schedule':
+            interval = get_setting_int('clean_interval')
+            last_run = get_last_run('last_run_clean')
+            if last_run == 0:
+                self.next_run_clean = time.time() + 60
+            else:
+                self.next_run_clean = last_run + (interval * 3600)
+        else:
+            self.next_run_clean = 0
+
+        logger.log(f"Schedule updated. Import: {self.fmt_time(self.next_run_import)}, Export: {self.fmt_time(self.next_run_export)}, Clean: {self.fmt_time(self.next_run_clean)}")
+
+    def fmt_time(self, ts):
+        if ts == 0: return "Disabled/Manual"
+        return datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
 
     def wait_for_scan(self):
         # Wait a moment for scan to potentially start
@@ -159,73 +189,120 @@ class NFOSyncService(xbmc.Monitor):
     def release_lock(self):
         xbmcgui.Window(10000).setProperty('service.library.nfosync.sync_active', 'false')
 
-    def run_sync(self):
-        # Attempt to acquire lock
-        if not self.acquire_lock():
-            logger.log("Sync request ignored: Sync already in progress.")
-            logger.notify("NFO Sync", "Sync already in progress", xbmcgui.NOTIFICATION_WARNING)
+    def check_preconditions(self):
+        if self.acquire_lock():
+            try:
+                if xbmc.Player().isPlaying():
+                    logger.log("Media is playing. Postponing task.")
+                    return False
+                self.wait_while_scanning()
+                if self.abortRequested(): return False
+                return True
+            except:
+                self.release_lock()
+                raise
+        else:
+            logger.log("Task ignored: Another task is already in progress.")
+            return False
+
+    def run_import(self):
+        if not self.check_preconditions():
+            # Postpone
+            self.next_run_import = time.time() + 60
             return
 
         try:
-            # Check if media is playing
-            if xbmc.Player().isPlaying():
-                logger.log("Media is playing. Postponing sync for 60 seconds.")
-                self.next_run = time.time() + 60
-                return
-
-            # Prevent collisions with running scans (e.g. startup scan)
-            self.wait_while_scanning()
-            if self.abortRequested(): return
-
-            # Map labelenum strings to integers
-            direction_str = ADDON.getSetting('sync_direction')
-            direction = 0
-            if direction_str == "Import (Scan New)":
-                direction = 1
-            elif direction_str == "Import (Force Refresh)":
-                direction = 2
-
-            logger.log(f"Starting Sync. Direction: {direction} ({direction_str})")
-            logger.notify("NFO Sync", "Starting Sync", xbmcgui.NOTIFICATION_INFO)
+            import_type_str = ADDON.getSetting('import_type')
+            logger.log(f"Starting Import. Type: {import_type_str}")
+            logger.notify("NFO Sync", "Starting Import", xbmcgui.NOTIFICATION_INFO)
 
             start_time = time.time()
 
-            if direction == 0:  # Export Library
-                # ExportLibrary(category, separate, overwrite, images, actorimgs)
-                # We want: video, true (separate files), true (overwrite), true (images), true (actorimgs)
-                xbmc.executebuiltin('ExportLibrary(video,true,true,true,true)')
-                logger.log("Triggered ExportLibrary")
-
-            elif direction == 1:  # Import (Scan)
+            # Import (Scan New Only) is index 0 (assuming based on order or string check)
+            # labelenum values="Scan New Only|Full Refresh"
+            if import_type_str == "Scan New Only":
                 xbmc.executebuiltin('UpdateLibrary(video)')
                 logger.log("Triggered UpdateLibrary (Scan)")
                 self.wait_for_scan()
-
-            elif direction == 2:  # Import (Force Refresh)
+            elif import_type_str == "Full Refresh":
                 self.refresh_library()
 
-            set_last_run(start_time)
-            self.update_schedule()
-            logger.log(f"Sync Completed")
-            logger.notify("NFO Sync", "Sync Completed", xbmcgui.NOTIFICATION_INFO)
+            set_last_run('last_run_import', start_time)
+            logger.log("Import Completed")
+            logger.notify("NFO Sync", "Import Completed", xbmcgui.NOTIFICATION_INFO)
+
+            # Check for chained Clean-up
+            if ADDON.getSettingBool('clean_enabled') and ADDON.getSetting('clean_schedule_type') == 'After Import':
+                logger.log("Triggering Clean-up after Import...")
+                self.release_lock()
+                self.run_clean()
+                return
 
         finally:
             self.release_lock()
+            self.update_schedule()
+
+    def run_export(self):
+        if not self.check_preconditions():
+            self.next_run_export = time.time() + 60
+            return
+
+        try:
+            logger.log("Starting Export")
+            logger.notify("NFO Sync", "Starting Export", xbmcgui.NOTIFICATION_INFO)
+            start_time = time.time()
+
+            # ExportLibrary(video, true, true, true, true)
+            xbmc.executebuiltin('ExportLibrary(video,true,true,true,true)')
+            logger.log("Triggered ExportLibrary")
+
+            set_last_run('last_run_export', start_time)
+            logger.log("Export Triggered/Completed")
+            logger.notify("NFO Sync", "Export Completed", xbmcgui.NOTIFICATION_INFO)
+
+        finally:
+            self.release_lock()
+            self.update_schedule()
+
+    def run_clean(self):
+        if not self.check_preconditions():
+            if ADDON.getSetting('clean_schedule_type') == 'On Schedule':
+                self.next_run_clean = time.time() + 60
+            return
+
+        try:
+            logger.log("Starting Clean-up")
+            logger.notify("NFO Sync", "Cleaning Library", xbmcgui.NOTIFICATION_INFO)
+            start_time = time.time()
+
+            xbmc.executebuiltin('CleanLibrary(video)')
+            self.wait_for_scan()
+
+            set_last_run('last_run_clean', start_time)
+            logger.log("Clean-up Completed")
+            logger.notify("NFO Sync", "Clean-up Completed", xbmcgui.NOTIFICATION_INFO)
+
+        finally:
+            self.release_lock()
+            self.update_schedule()
 
     def refresh_library(self):
         logger.log("Starting Library Refresh (JSON-RPC) - Smart Mode")
 
-        # Batch size 5000 to process effectively all-in-one-go
         BATCH_SIZE = 5000
-        last_run = get_last_run()
+        last_run = get_last_run('last_run_import')
 
-        # Check if Smart Sync is enabled
-        use_smart_sync = ADDON.getSettingBool('smart_sync')
+        use_smart_sync = ADDON.getSettingBool('import_smart_sync')
         logger.log(f"Smart Sync Enabled: {use_smart_sync}")
 
         if use_smart_sync:
-            # We are using a 2h buffer in should_refresh
-            logger.log(f"Checking for NFOs modified since timestamp: {last_run} (with 2h safety buffer)")
+            # We are using a 2h buffer is logic from before? The code view didn't show 2h buffer calc invalidating timestamp
+            # But the log message said "with 2h safety buffer".
+            # Actually I should trust the code I read.
+            # The previous code was: `if mtime > last_run:`
+            # It didn't modify last_run. The log message just said it.
+            # I will keep it simple: strict check.
+            logger.log(f"Checking for NFOs modified since timestamp: {last_run}")
         else:
             logger.log("Smart Sync disabled. Forcing refresh of ALL items.")
 
@@ -305,8 +382,7 @@ class NFOSyncService(xbmc.Monitor):
 
             logger.log(f"=== TV Shows Report: Total {total}, Refreshed {total - skipped}, Skipped {skipped} ===")
 
-        # Allow basic scan for new items as well? Maybe not needed if ONLY refreshing.
-        # But usually users want both. Let's trigger a scan at the end to catch NEW files.
+        # Allow basic scan for new items as well
         if not self.abortRequested():
             logger.log("Triggering final UpdateLibrary scan for new files...")
             xbmc.executebuiltin('UpdateLibrary(video)')
@@ -315,17 +391,29 @@ class NFOSyncService(xbmc.Monitor):
     def run(self):
         logger.log("Service Started")
 
-        # Check and run Sync on Startup
-        if ADDON.getSettingBool('sync_on_startup'):
-            logger.log("Sync on Startup Enabled. Waiting 30s for system to settle...")
-            # Wait 30 seconds to allow network/drives to mount and other services to start
+        # Check and run Sync on Startup (IMPORT ONLY)
+        if ADDON.getSettingBool('import_enabled') and ADDON.getSettingBool('import_on_startup'):
+            logger.log("Import on Startup Enabled. Waiting 30s for system to settle...")
             if not self.waitForAbort(30):
-                logger.log("Triggering Startup Sync...")
-                self.run_sync()
+                logger.log("Triggering Startup Import...")
+                self.run_import()
 
         while not self.abortRequested():
-            if time.time() >= self.next_run:
-                self.run_sync()
+            now = time.time()
+
+            # Check Import
+            if self.next_run_import > 0 and now >= self.next_run_import:
+                self.run_import()
+                now = time.time()
+
+            # Check Export
+            if self.next_run_export > 0 and now >= self.next_run_export:
+                self.run_export()
+                now = time.time()
+
+            # Check Clean
+            if self.next_run_clean > 0 and now >= self.next_run_clean:
+                self.run_clean()
 
             # Check every 10 seconds
             if self.waitForAbort(10):
