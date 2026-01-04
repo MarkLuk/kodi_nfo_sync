@@ -6,7 +6,8 @@
 
 -   **Two-Way Synchronization**:
     -   **Export**: Export your Kodi library to `.nfo` files, overwriting existing files. Useful for backing up your library or syncing changes to other Kodi instances.
-    -   **Import**: Import data from `.nfo` files into your Kodi library.
+    -   **Import**: Import data from `.nfo` files into your Kodi library. Supports Movies, TV Shows, and Music Videos.
+-   **Preserve Watched Status**: Option to preserve your current watched status (play count, resume point, last played) during an import, even if the NFO file says otherwise.
 -   **Smart Sync**: When importing, the addon can check file modification times (`mtime`) to only refresh items that have changed since the last run, significantly speeding up the process.
 -   **Automated Scheduling**:
     -   **Import Interval**: Run imports automatically every X hours.

@@ -12,7 +12,12 @@ ADDON = xbmcaddon.Addon()
 
 class Logger:
     def log(self, msg, level=xbmc.LOGINFO):
-        xbmc.log(f"[{ADDON_ID}] {msg}", level)
+        try:
+            xbmc.log(f"[{ADDON_ID}] {msg}", level)
+        except UnicodeEncodeError:
+            # Fallback for systems/files with encoding issues
+            sanitized = msg.encode('utf-8', 'replace').decode('utf-8')
+            xbmc.log(f"[{ADDON_ID}] {sanitized}", level)
 
     def notify(self, header, message, icon=xbmcgui.NOTIFICATION_INFO, time=5000):
         if ADDON.getSettingBool('show_notifications'):
@@ -306,8 +311,16 @@ class NFOSyncService(xbmc.Monitor):
         else:
             logger.log("Smart Sync disabled. Forcing refresh of ALL items.")
 
+        preserve_watched = ADDON.getSettingBool('import_preserve_watched')
+        preserved_movies = {}
+        preserved_episodes = {}
+        preserved_musicvideos = {}
+
+        if preserve_watched:
+            logger.log("Preserve Watched Status enabled. Capturing current status...")
+
         # Refresh Movies
-        movies = json_rpc('VideoLibrary.GetMovies', {'properties': ['file']})
+        movies = json_rpc('VideoLibrary.GetMovies', {'properties': ['file', 'playcount', 'resume', 'lastplayed']})
         if 'result' in movies and 'movies' in movies['result']:
             batch = []
             total = len(movies['result']['movies'])
@@ -323,6 +336,15 @@ class NFOSyncService(xbmc.Monitor):
                     if not self.should_refresh(movie['file'], last_run):
                         skipped += 1
                         continue
+
+                # Preserve Status
+                if preserve_watched:
+                    if movie.get('playcount', 0) > 0 or movie.get('resume', {}).get('position', 0) > 0:
+                        preserved_movies[movie['movieid']] = {
+                            'playcount': movie.get('playcount', 0),
+                            'resume': movie.get('resume', {}),
+                            'lastplayed': movie.get('lastplayed', '')
+                        }
 
                 movie_id = movie['movieid']
                 logger.log(f"Queuing refresh for: {movie['label']}")
@@ -344,6 +366,53 @@ class NFOSyncService(xbmc.Monitor):
 
             logger.log(f"=== Movies Report: Total {total}, Refreshed {total - skipped}, Skipped {skipped} ===")
 
+        # Refresh Music Videos
+        musicvideos = json_rpc('VideoLibrary.GetMusicVideos', {'properties': ['file', 'playcount', 'resume', 'lastplayed']})
+        if 'result' in musicvideos and 'musicvideos' in musicvideos['result']:
+            batch = []
+            total = len(musicvideos['result']['musicvideos'])
+            skipped = 0
+
+            logger.log(f"Analyzing {total} Music Videos for changes...")
+
+            for i, mv in enumerate(musicvideos['result']['musicvideos']):
+                if self.abortRequested(): break
+
+                # Smart Sync Check
+                if use_smart_sync and last_run > 0:
+                    if not self.should_refresh(mv['file'], last_run):
+                        skipped += 1
+                        continue
+
+                # Preserve Status
+                if preserve_watched:
+                    if mv.get('playcount', 0) > 0 or mv.get('resume', {}).get('position', 0) > 0:
+                        preserved_musicvideos[mv['musicvideoid']] = {
+                            'playcount': mv.get('playcount', 0),
+                            'resume': mv.get('resume', {}),
+                            'lastplayed': mv.get('lastplayed', '')
+                        }
+
+                mv_id = mv['musicvideoid']
+                logger.log(f"Queuing refresh for: {mv['label']}")
+                batch.append({
+                    'jsonrpc': '2.0',
+                    'method': 'VideoLibrary.RefreshMusicVideo',
+                    'params': {'musicvideoid': mv_id, 'ignorenfo': False},
+                    'id': i
+                })
+
+                if len(batch) >= BATCH_SIZE:
+                    logger.log(f"Sending batch of {len(batch)} Music Videos...")
+                    json_rpc_batch(batch)
+                    batch = []
+
+            if batch:
+                logger.log(f"Sending remaining batch of {len(batch)} Music Videos...")
+                json_rpc_batch(batch)
+
+            logger.log(f"=== Music Videos Report: Total {total}, Refreshed {total - skipped}, Skipped {skipped} ===")
+
         # Refresh TV Shows
         shows = json_rpc('VideoLibrary.GetTVShows', {'properties': ['file']})
         if 'result' in shows and 'tvshows' in shows['result']:
@@ -361,6 +430,19 @@ class NFOSyncService(xbmc.Monitor):
                     if not self.should_refresh(show['file'], last_run):
                         skipped += 1
                         continue
+
+                # Preserve Status (Episodes)
+                if preserve_watched:
+                    # Fetch episodes for this show
+                    episodes = json_rpc('VideoLibrary.GetEpisodes', {'tvshowid': show['tvshowid'], 'properties': ['playcount', 'resume', 'lastplayed']})
+                    if 'result' in episodes and 'episodes' in episodes['result']:
+                         for ep in episodes['result']['episodes']:
+                             if ep.get('playcount', 0) > 0 or ep.get('resume', {}).get('position', 0) > 0:
+                                 preserved_episodes[ep['episodeid']] = {
+                                     'playcount': ep.get('playcount', 0),
+                                     'resume': ep.get('resume', {}),
+                                     'lastplayed': ep.get('lastplayed', '')
+                                 }
 
                 tvshow_id = show['tvshowid']
                 logger.log(f"Queuing refresh for: {show['label']}")
@@ -381,6 +463,59 @@ class NFOSyncService(xbmc.Monitor):
                 json_rpc_batch(batch)
 
             logger.log(f"=== TV Shows Report: Total {total}, Refreshed {total - skipped}, Skipped {skipped} ===")
+
+        # Restore Watched Status
+        if preserve_watched:
+            logger.log("Restoring Watched Status...")
+            # Movies
+            if preserved_movies:
+                logger.log(f"Restoring status for {len(preserved_movies)} Movies...")
+                batch = []
+                for mid, data in preserved_movies.items():
+                    batch.append({
+                        'jsonrpc': '2.0',
+                        'method': 'VideoLibrary.SetMovieDetails',
+                        'params': {'movieid': mid, 'playcount': data['playcount'], 'resume': data['resume'], 'lastplayed': data['lastplayed']},
+                        'id': mid
+                    })
+                    if len(batch) >= 100:
+                         json_rpc_batch(batch)
+                         batch = []
+                if batch: json_rpc_batch(batch)
+
+            # Music Videos
+            if preserved_musicvideos:
+                logger.log(f"Restoring status for {len(preserved_musicvideos)} Music Videos...")
+                batch = []
+                for mvid, data in preserved_musicvideos.items():
+                    batch.append({
+                        'jsonrpc': '2.0',
+                        'method': 'VideoLibrary.SetMusicVideoDetails',
+                        'params': {'musicvideoid': mvid, 'playcount': data['playcount'], 'resume': data['resume'], 'lastplayed': data['lastplayed']},
+                        'id': mvid
+                    })
+                    if len(batch) >= 100:
+                         json_rpc_batch(batch)
+                         batch = []
+                if batch: json_rpc_batch(batch)
+
+            # Episodes
+            if preserved_episodes:
+                logger.log(f"Restoring status for {len(preserved_episodes)} Episodes...")
+                batch = []
+                for epid, data in preserved_episodes.items():
+                    batch.append({
+                        'jsonrpc': '2.0',
+                        'method': 'VideoLibrary.SetEpisodeDetails',
+                        'params': {'episodeid': epid, 'playcount': data['playcount'], 'resume': data['resume'], 'lastplayed': data['lastplayed']},
+                        'id': epid
+                    })
+                    if len(batch) >= 100:
+                         json_rpc_batch(batch)
+                         batch = []
+                if batch: json_rpc_batch(batch)
+
+            logger.log("Watched Status Restoration Completed.")
 
         # Allow basic scan for new items as well
         if not self.abortRequested():
