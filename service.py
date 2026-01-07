@@ -321,68 +321,6 @@ class NFOSyncService(xbmc.Monitor):
             self.release_lock()
             self.update_schedule()
 
-    def resolve_new_ids(self, preserved_movies, preserved_musicvideos, preserved_episodes):
-        logger.log("Resolving new Library IDs for preserved items...")
-
-        # Resolve Movies
-        if preserved_movies:
-            new_map = {}
-            movies = json_rpc('VideoLibrary.GetMovies', {'properties': ['file']})
-            if 'result' in movies and 'movies' in movies['result']:
-                for m in movies['result']['movies']:
-                    new_map[m['file']] = m['movieid']
-
-            updates = {}
-            for old_id, data in preserved_movies.items():
-                f = data.get('file')
-                if f and f in new_map:
-                    updates[new_map[f]] = data
-
-            preserved_movies.clear()
-            preserved_movies.update(updates)
-            logger.log(f"Resolved {len(preserved_movies)} movies.")
-
-        # Resolve Music Videos
-        if preserved_musicvideos:
-            new_map = {}
-            mvs = json_rpc('VideoLibrary.GetMusicVideos', {'properties': ['file']})
-            if 'result' in mvs and 'musicvideos' in mvs['result']:
-                for mv in mvs['result']['musicvideos']:
-                    new_map[mv['file']] = mv['musicvideoid']
-
-            updates = {}
-            for old_id, data in preserved_musicvideos.items():
-                f = data.get('file')
-                if f and f in new_map:
-                    updates[new_map[f]] = data
-
-            preserved_musicvideos.clear()
-            preserved_musicvideos.update(updates)
-            logger.log(f"Resolved {len(preserved_musicvideos)} music videos.")
-
-        # Resolve Episodes
-        if preserved_episodes:
-            new_map = {}
-            shows = json_rpc('VideoLibrary.GetTVShows')
-            if 'result' in shows and 'tvshows' in shows['result']:
-                for s in shows['result']['tvshows']:
-                    sid = s['tvshowid']
-                    # Use properties to get file
-                    eps = json_rpc('VideoLibrary.GetEpisodes', {'tvshowid': sid, 'properties': ['file']})
-                    if 'result' in eps and 'episodes' in eps['result']:
-                        for ep in eps['result']['episodes']:
-                            new_map[ep['file']] = ep['episodeid']
-
-            updates = {}
-            for old_id, data in preserved_episodes.items():
-                f = data.get('file')
-                if f and f in new_map:
-                    updates[new_map[f]] = data
-
-            preserved_episodes.clear()
-            preserved_episodes.update(updates)
-            logger.log(f"Resolved {len(preserved_episodes)} episodes.")
-
     def refresh_library(self):
         logger.log("Starting Library Refresh (JSON-RPC) - Smart Mode")
 
@@ -390,10 +328,9 @@ class NFOSyncService(xbmc.Monitor):
         last_run = get_last_run('last_run_import')
 
         use_smart_sync = ADDON.getSettingBool('import_smart_sync')
-        use_rescan = ADDON.getSettingBool('import_experimental_rescan')
+        # Removed experimental rescan option
 
         logger.log(f"Smart Sync Enabled: {use_smart_sync}")
-        logger.log(f"Remove and Rescan (Experimental) Enabled: {use_rescan}")
 
         if use_smart_sync:
             logger.log(f"Checking for NFOs modified since timestamp: {last_run}")
@@ -440,22 +377,13 @@ class NFOSyncService(xbmc.Monitor):
                 movie_id = movie['movieid']
                 count_processed += 1
 
-                if use_rescan:
-                    logger.log(f"Removing movie for rescan: {movie['label']}")
-                    batch.append({
-                        'jsonrpc': '2.0',
-                        'method': 'VideoLibrary.RemoveMovie',
-                        'params': {'movieid': movie_id},
-                        'id': i
-                    })
-                else:
-                    logger.log(f"Queuing refresh for: {movie['label']}")
-                    batch.append({
-                        'jsonrpc': '2.0',
-                        'method': 'VideoLibrary.RefreshMovie',
-                        'params': {'movieid': movie_id, 'ignorenfo': False},
-                        'id': i
-                    })
+                logger.log(f"Queuing refresh for: {movie['label']}")
+                batch.append({
+                    'jsonrpc': '2.0',
+                    'method': 'VideoLibrary.RefreshMovie',
+                    'params': {'movieid': movie_id, 'ignorenfo': False},
+                    'id': i
+                })
 
                 if len(batch) >= BATCH_SIZE:
                     logger.log(f"Sending batch of {len(batch)} movies...")
@@ -500,22 +428,13 @@ class NFOSyncService(xbmc.Monitor):
                 mv_id = mv['musicvideoid']
                 count_processed += 1
 
-                if use_rescan:
-                     logger.log(f"Removing MV for rescan: {mv['label']}")
-                     batch.append({
-                        'jsonrpc': '2.0',
-                        'method': 'VideoLibrary.RemoveMusicVideo',
-                        'params': {'musicvideoid': mv_id},
-                        'id': i
-                    })
-                else:
-                    logger.log(f"Queuing refresh for: {mv['label']}")
-                    batch.append({
-                        'jsonrpc': '2.0',
-                        'method': 'VideoLibrary.RefreshMusicVideo',
-                        'params': {'musicvideoid': mv_id, 'ignorenfo': False},
-                        'id': i
-                    })
+                logger.log(f"Queuing refresh for: {mv['label']}")
+                batch.append({
+                    'jsonrpc': '2.0',
+                    'method': 'VideoLibrary.RefreshMusicVideo',
+                    'params': {'musicvideoid': mv_id, 'ignorenfo': False},
+                    'id': i
+                })
 
                 if len(batch) >= BATCH_SIZE:
                     logger.log(f"Sending batch of {len(batch)} Music Videos...")
@@ -564,22 +483,13 @@ class NFOSyncService(xbmc.Monitor):
                 tvshow_id = show['tvshowid']
                 count_processed += 1
 
-                if use_rescan:
-                    logger.log(f"Removing TV Show for rescan: {show['label']}")
-                    batch.append({
-                        'jsonrpc': '2.0',
-                        'method': 'VideoLibrary.RemoveTVShow',
-                        'params': {'tvshowid': tvshow_id},
-                        'id': i
-                    })
-                else:
-                    logger.log(f"Queuing refresh for: {show['label']}")
-                    batch.append({
-                        'jsonrpc': '2.0',
-                        'method': 'VideoLibrary.RefreshTVShow',
-                        'params': {'tvshowid': tvshow_id, 'ignorenfo': False},
-                        'id': i
-                    })
+                logger.log(f"Queuing refresh for: {show['label']}")
+                batch.append({
+                    'jsonrpc': '2.0',
+                    'method': 'VideoLibrary.RefreshTVShow',
+                    'params': {'tvshowid': tvshow_id, 'ignorenfo': False},
+                    'id': i
+                })
 
                 if len(batch) >= BATCH_SIZE:
                     logger.log(f"Sending batch of {len(batch)} TV Shows...")
@@ -600,10 +510,6 @@ class NFOSyncService(xbmc.Monitor):
 
         # Restore Watched Status
         if preserve_watched:
-            # If using rescan, we must map old IDs to new IDs
-            if use_rescan:
-                self.resolve_new_ids(preserved_movies, preserved_musicvideos, preserved_episodes)
-
             logger.log("Restoring Watched Status...")
             # Movies
             if preserved_movies:
