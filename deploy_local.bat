@@ -1,10 +1,13 @@
 @echo off
 setlocal
 
-echo Deploying NFO Sync to Kodi Addons folder...
+
 
 :: Target Directory (Standard Windows Install)
-set "TARGET_DIR=%APPDATA%\Kodi\addons\service.library.nfosync"
+for /f "usebackq tokens=*" %%A in (`powershell -NoProfile -Command "$xml=[xml](Get-Content addon.xml); Write-Output $xml.addon.id"`) do set "ADDON_ID=%%A"
+set "TARGET_DIR=%APPDATA%\Kodi\addons\%ADDON_ID%"
+
+echo Deploying NFO Sync to %TARGET_DIR%
 
 if not exist "%TARGET_DIR%" (
     echo Target directory not found: "%TARGET_DIR%"
@@ -12,29 +15,40 @@ if not exist "%TARGET_DIR%" (
     mkdir "%TARGET_DIR%"
 )
 
-set "FILES_TO_COPY=addon.xml service.py script.py LICENSE README.md icon.png"
-set "DIRS_TO_COPY=resources"
+:: Files to Copy
+set FILES_TO_COPY=
+set FILES_TO_COPY=%FILES_TO_COPY% addon.xml
+set FILES_TO_COPY=%FILES_TO_COPY% service.py
+set FILES_TO_COPY=%FILES_TO_COPY% script.py
+set FILES_TO_COPY=%FILES_TO_COPY% LICENSE
+set FILES_TO_COPY=%FILES_TO_COPY% README.md
+set FILES_TO_COPY=%FILES_TO_COPY% icon.png
 
-:: Create Exclude File
-set "EXCLUDE_FILE=%TEMP%\xcopy_excludes.txt"
+:: Directories to Copy
+set DIRS_TO_COPY=
+set DIRS_TO_COPY=%DIRS_TO_COPY% resources
+
+:: Excluded Files
+set EXCLUDE_FILE=%TEMP%\xcopy_excludes.txt
 (
     echo __pycache__
     echo .pyc
 ) > "%EXCLUDE_FILE%"
 
+echo.
 echo Copying Files...
 for %%f in (%FILES_TO_COPY%) do (
     if exist "%%f" (
         echo Copying %%f
-        xcopy "%%f" "%TARGET_DIR%\" /Y /Q
+        xcopy "%%f" "%TARGET_DIR%\" /Y /H /Q /R >nul
     )
 )
-
+echo.
 echo Copying Directories...
 for %%d in (%DIRS_TO_COPY%) do (
     if exist "%%d" (
-        echo Copying %%d
-        xcopy "%%d" "%TARGET_DIR%\%%d" /E /I /Y /EXCLUDE:%EXCLUDE_FILE% /Q
+        echo Copying %%d directory
+        xcopy "%%d" "%TARGET_DIR%\%%d" /E /I /Y /EXCLUDE:%EXCLUDE_FILE% /Q /H /R >nul
     )
 )
 
@@ -43,4 +57,4 @@ del "%EXCLUDE_FILE%"
 echo.
 echo Deployment Complete!
 echo You may need to restart Kodi or Reload the skin/addon for changes to take effect.
-pause
+timeout /t 5
