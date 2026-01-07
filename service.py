@@ -194,6 +194,26 @@ class NFOSyncService(xbmc.Monitor):
     def release_lock(self):
         xbmcgui.Window(10000).setProperty('service.library.nfosync.sync_active', 'false')
 
+    def are_shares_available(self):
+        try:
+            # Get video sources
+            sources_response = json_rpc('Files.GetSources', {'media': 'video'})
+            if 'result' in sources_response and 'sources' in sources_response['result']:
+                for source in sources_response['result']['sources']:
+                    path = source['file']
+                    # Ignore addons and special paths if needed, but usually we want to check everything
+                    # especially network shares (smb://, nfs://)
+                    # Note: xbmcvfs.exists handles most protocols supported by Kodi
+                    if not xbmcvfs.exists(path):
+                        logger.log(f"Share unavailable: {path} ({source['label']})", xbmc.LOGWARNING)
+                        return False
+            return True
+        except Exception as e:
+            logger.log(f"Error checking shares: {e}", xbmc.LOGERROR)
+            # If we fail to check, assume unsafe to clean? Or safe?
+            # Safer to return False
+            return False
+
     def check_preconditions(self):
         if self.acquire_lock():
             try:
@@ -273,6 +293,16 @@ class NFOSyncService(xbmc.Monitor):
         if not self.check_preconditions():
             if ADDON.getSetting('clean_schedule_type') == 'On Schedule':
                 self.next_run_clean = time.time() + 60
+            return
+
+        # Check sources if enabled
+        if ADDON.getSettingBool('clean_check_sources') and not self.are_shares_available():
+            logger.log("Clean-up aborted because one or more shares are unavailable.", xbmc.LOGWARNING)
+            logger.notify("NFO Sync", "Clean-up Aborted (Missing Shares)", xbmcgui.NOTIFICATION_WARNING)
+            # Retry later? Or just skip?
+            # If we skip, it will run again on next schedule.
+            # If scheduled type is After Import, it won't run until next import.
+            # If checking preconditions failed we deferred by 60s. Here maybe we just return.
             return
 
         try:

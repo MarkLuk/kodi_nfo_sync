@@ -16,7 +16,8 @@
     <category label="Clean-up">
         <setting id="clean_enabled" type="bool" label="Enable Clean-up" default="false" />
         <setting id="clean_schedule_type" type="labelenum" label="Clean-up Trigger" values="After Import|On Schedule" default="After Import" enable="eq(-1,true)" />
-        <setting id="clean_interval" type="slider" label="Clean-up Interval (Hours)" default="24" range="1,1,168" option="int" visible="eq(-1,On Schedule)" enable="eq(-2,true)" />
+        <setting id="clean_check_sources" type="bool" label="Don't clear if share not available" default="true" enable="eq(-2,true)" />
+        <setting id="clean_interval" type="slider" label="Clean-up Interval (Hours)" default="24" range="1,1,168" option="int" visible="eq(-2,On Schedule)" enable="eq(-3,true)" />
     </category>
     <category label="General">
         <setting id="show_notifications" type="bool" label="Show Notifications" default="true" />
